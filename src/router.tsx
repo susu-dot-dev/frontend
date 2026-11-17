@@ -1,4 +1,5 @@
 import { createBrowserRouter, createMemoryRouter, type RouteObject } from "react-router";
+import { FirstRun } from "@/routes/admin/FirstRun";
 import { Home } from "@/routes/Home";
 import { Layout } from "@/routes/Layout";
 import { NotFound } from "@/routes/NotFound";
@@ -9,6 +10,7 @@ export const routes: RouteObject[] = [
     Component: Layout,
     children: [
       { index: true, Component: Home },
+      { path: "admin/first-run", Component: FirstRun },
       { path: "*", Component: NotFound },
     ],
   },

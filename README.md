@@ -48,9 +48,9 @@ src/
   index.tsx         entry; the only file excluded from coverage
   App.tsx           RouterProvider wrapper (takes a router, so tests can inject one)
   router.tsx        route table, createRouter (browser) / createTestRouter (memory)
-  routes/           route components
+  routes/           route components (routes/admin/: admin UI, e.g. /admin/first-run)
   components/ui/    shadcn primitives (copied, not authored; excluded from lint)
-  lib/              utils (cn), theme
+  lib/              utils (cn), theme, firstRun (authsu first-run API client)
 ```
 
 Add routes in `src/router.tsx`. Add shadcn primitives with
