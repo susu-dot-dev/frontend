@@ -2,6 +2,7 @@ import { afterEach, describe, expect, rs, test } from "@rstest/core";
 import {
   type CredentialsApi,
   classifyCredentialError,
+  classifyFinishError,
   classifyServerError,
   clearFragment,
   fetchSession,
@@ -86,6 +87,26 @@ describe("clearFragment", () => {
     clearFragment();
     expect(window.location.hash).toBe("");
     expect(window.location.pathname + window.location.search).toBe("/register?x=1");
+  });
+});
+
+describe("classifyFinishError", () => {
+  test.each([
+    // The passkey itself was refused, however the server worded it.
+    [400, "invalid_credential", "invalid_credential"],
+    [400, "unknown_field", "invalid_credential"],
+    [400, "invalid_field_type", "invalid_credential"],
+    [400, "trailing_data", "invalid_credential"],
+    [400, undefined, "invalid_credential"],
+    // Everything else keeps its normal meaning.
+    [400, "invalid_challenge", "invalid_challenge"],
+    [400, "invalid_invitation", "invalid_invitation"],
+    [403, "invalid_invitation", "invitation_rejected"],
+    [409, "registration_accept_failed", "conflict"],
+    [503, "registration_not_configured", "unavailable"],
+    [415, "unsupported_media_type", "unknown"],
+  ] as const)("%i %s -> %s", (status, code, expected) => {
+    expect(classifyFinishError({ status, code })).toBe(expected);
   });
 });
 
@@ -321,6 +342,22 @@ describe("register", () => {
         ]).deps,
       ),
     ).toEqual({ ok: false, code: "conflict" });
+    // A 400 from finish means the passkey was rejected, even with an unrecognised code.
+    for (const code of ["invalid_credential", "unknown_field"]) {
+      expect(
+        await register(
+          input,
+          setup([{ body: options }, { status: 400, body: { error: { code } } }]).deps,
+        ),
+      ).toEqual({ ok: false, code: "invalid_credential" });
+    }
+    // But begin's 400s are not about the passkey: there is none yet.
+    expect(
+      await register(
+        input,
+        setup([{ status: 400, body: { error: { code: "unknown_field" } } }]).deps,
+      ),
+    ).toEqual({ ok: false, code: "unknown" });
     for (const body of [{}, null, { userId: "u" }, { userId: 1, role: "admin" }]) {
       expect(await register(input, setup([{ body: options }, { status: 201, body }]).deps)).toEqual(
         { ok: false, code: "unknown" },

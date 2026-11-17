@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, rs, test } from "@rstest/core";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "@/App";
 import { createTestRouter } from "@/router";
@@ -33,6 +33,7 @@ beforeEach(() => {
   rs.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
     requests.push({ url, body: init?.body ? JSON.parse(init.body as string) : undefined });
     if (url === "/api/session") return respond(session);
+    if (url === "/api/logout") return new Response(null, { status: 204 });
     if (url === "/api/register/begin") return respond(begin);
     return respond(finish);
   });
@@ -123,15 +124,83 @@ test("shows a rejected-invitation error and allows retrying", async () => {
   expect(screen.getByRole("button", { name: "Create account" })).toBeEnabled();
 });
 
+test("a rejected passkey opens a modal with the reason, and Try again retries", async () => {
+  finish = {
+    status: 400,
+    body: {
+      error: {
+        code: "invalid_credential",
+        message: "the passkey registration response is not valid",
+      },
+    },
+  };
+  await renderPage("/register#code");
+  await fillName();
+  await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+
+  const dialog = await screen.findByRole("dialog", { name: "Couldn't create your passkey" });
+  const alert = within(dialog).getByRole("alert");
+  expect(alert).toHaveTextContent("Your passkey was rejected");
+  expect(alert).toHaveTextContent("try again");
+  expect(alert).toHaveTextContent("different passkey provider");
+
+  // Try again runs the whole ceremony again, with the same name and code.
+  finish = { status: 201, body: { userId: "u-1", role: "admin" } };
+  await userEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
+  await screen.findByRole("heading", { name: "Account created" });
+  expect(requests.filter((r) => r.url === "/api/register/begin")).toHaveLength(2);
+  expect(requests.at(-2)?.body).toEqual({ invitationCode: "code", name: "Ada Lovelace" });
+});
+
+test("Close dismisses the modal and leaves the form filled in", async () => {
+  finish = { status: 400, body: { error: { code: "invalid_credential" } } };
+  await renderPage("/register#code");
+  await fillName();
+  await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+  const dialog = await screen.findByRole("dialog");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Create account" })).toBeEnabled();
+  expect(screen.getByLabelText("Full name")).toHaveValue("Ada Lovelace");
+});
+
+test("Escape also dismisses an error modal", async () => {
+  finish = { status: 400, body: { error: { code: "invalid_credential" } } };
+  await renderPage("/register#code");
+  await fillName();
+  await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+  await screen.findByRole("dialog");
+  await userEvent.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("problems with what was typed stay beside the form, not in a modal", async () => {
+  begin = { status: 403, body: { error: { code: "invalid_invitation" } } };
+  await renderPage("/register#bad");
+  await fillName();
+  await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("That invitation code isn't valid");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("an unrecognised 400 from finish is also reported as a rejected passkey", async () => {
+  finish = { status: 400, body: { error: { code: "unknown_field" } } };
+  await renderPage("/register#code");
+  await fillName();
+  await userEvent.click(screen.getByRole("button", { name: "Create account" }));
+  expect(await screen.findByRole("dialog")).toHaveTextContent("different passkey provider");
+});
+
 test("a dismissed passkey prompt shows a friendly error", async () => {
   created = Object.assign(new Error("x"), { name: "NotAllowedError" });
   await renderPage("/register#code");
   await fillName();
   await userEvent.click(screen.getByRole("button", { name: "Create account" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("prompt was dismissed");
+  expect(await screen.findByRole("dialog")).toHaveTextContent("prompt was dismissed");
 });
 
-test("disables the button while waiting for the passkey, and ignores double submits", async () => {
+test("shows a waiting modal during the ceremony, and ignores double submits", async () => {
   let release: (c: Credential) => void = () => {};
   rs.stubGlobal("navigator", {
     credentials: { create: () => new Promise<Credential>((resolve) => (release = resolve)) },
@@ -139,14 +208,24 @@ test("disables the button while waiting for the passkey, and ignores double subm
   await renderPage("/register#code");
   await fillName();
   await userEvent.click(screen.getByRole("button", { name: "Create account" }));
-  expect(screen.getByRole("button", { name: "Waiting for your passkey…" })).toBeDisabled();
+  const dialog = await screen.findByRole("dialog", { name: "Create your passkey" });
+  expect(dialog).toHaveTextContent("Follow the prompt from your browser or passkey provider");
+  expect(screen.getByRole("status")).toHaveTextContent("Waiting for your passkey…");
+  // Nothing to dismiss: the ceremony can't be cancelled from here.
+  expect(screen.queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+  expect(screen.getByRole("dialog")).toBeVisible();
 
-  // Submitting the form again via Enter must not start a second ceremony.
-  await userEvent.type(screen.getByLabelText("Full name"), "{Enter}");
+  // The handler itself refuses a second submit, whatever the DOM allows.
+  fireEvent.submit(
+    screen.getByLabelText("Full name", { selector: "input" }).closest("form") as HTMLFormElement,
+  );
+  await act(async () => {});
   expect(requests.filter((r) => r.url === "/api/register/begin")).toHaveLength(1);
 
   await act(async () => release(credential));
   await screen.findByRole("heading", { name: "Account created" });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
 
 test("submitting an incomplete form does nothing", async () => {
@@ -166,7 +245,7 @@ test("explains invalid names", async () => {
   expect(screen.getByRole("button", { name: "Create account" })).toBeDisabled();
 });
 
-test("already logged in: hides the form and offers a no-op logout", async () => {
+test("already logged in: hides the form, and logging out reveals it", async () => {
   session = { body: { userId: "u-1", role: "member", expiresAt: 1 } };
   await renderPage("/register#code");
 
@@ -174,11 +253,25 @@ test("already logged in: hides the form and offers a no-op logout", async () => 
   expect(screen.queryByLabelText("Full name")).not.toBeInTheDocument();
   expect(screen.queryByLabelText("Invitation code")).not.toBeInTheDocument();
 
-  const logout = screen.getByRole("button", { name: "Log out" });
-  await userEvent.click(logout);
-  // Logout isn't implemented: nothing is requested and the page is unchanged.
-  expect(requests.map((r) => r.url)).toEqual(["/api/session"]);
-  expect(screen.getByRole("heading", { name: "You're already logged in" })).toBeVisible();
+  await userEvent.click(screen.getByRole("button", { name: "Log out" }));
+  expect(await screen.findByLabelText("Full name")).toBeVisible();
+  expect(requests.map((r) => r.url)).toEqual(["/api/session", "/api/logout"]);
+});
+
+test("already logged in: a failed logout is reported in a modal", async () => {
+  session = { body: { userId: "u-1", role: "member", expiresAt: 1 } };
+  await renderPage("/register#code");
+  rs.stubGlobal("fetch", async (url: string) =>
+    url === "/api/session" ? respond(session) : new Response(null, { status: 503 }),
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "Log out" }));
+  const dialog = await screen.findByRole("dialog", { name: "Couldn't log you out" });
+  expect(dialog).toHaveTextContent("isn't available");
+  // Still signed in: the page behind the modal is unchanged (and aria-hidden while it's open).
+  expect(
+    screen.getByRole("heading", { name: "You're already logged in", hidden: true }),
+  ).toBeVisible();
 });
 
 test("shows a checking message until the session answer arrives", async () => {

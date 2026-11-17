@@ -123,11 +123,27 @@ type JsonResult =
   | { kind: "ok"; status: number; body: unknown }
   | { kind: "error"; code: RegisterErrorCode };
 
+/**
+ * Classifies an error from POST /api/register/finish. The invitation and name
+ * were already accepted by begin, so a 400 here means the passkey itself was
+ * refused. That includes a response the server could not parse at all
+ * (unknown_field, invalid_field_type, ...): from the user's side the passkey
+ * their provider made is the thing that didn't work.
+ */
+export function classifyFinishError({ status, code }: ServerError): RegisterErrorCode {
+  const classified = classifyServerError({ status, code });
+  if (status === 400 && (classified === "unknown" || classified === "invalid_credential")) {
+    return "invalid_credential";
+  }
+  return classified;
+}
+
 /** POSTs JSON to the API. Never throws. */
 async function postJson(
   fetchFn: typeof fetch,
   path: string,
   payload: unknown,
+  classify: (error: ServerError) => RegisterErrorCode = classifyServerError,
 ): Promise<JsonResult> {
   let response: Response;
   try {
@@ -153,7 +169,7 @@ async function postJson(
 
   const error = (body as { error?: { code?: unknown } } | null | undefined)?.error;
   const code = typeof error?.code === "string" ? error.code : undefined;
-  return { kind: "error", code: classifyServerError({ status: response.status, code }) };
+  return { kind: "error", code: classify({ status: response.status, code }) };
 }
 
 /** The WebAuthn surface registration needs; injectable so tests need no browser. */
@@ -255,12 +271,17 @@ export async function register(
   }
   if (!isPublicKeyCredential(credential)) return { ok: false, code: "authenticator_failed" };
 
-  const finish = await postJson(fetchFn, "/api/register/finish", {
-    invitationCode,
-    name,
-    // Posted unmodified: the server accepts toJSON() output as-is.
-    credential: credential.toJSON(),
-  });
+  const finish = await postJson(
+    fetchFn,
+    "/api/register/finish",
+    {
+      invitationCode,
+      name,
+      // Posted unmodified: the server accepts toJSON() output as-is.
+      credential: credential.toJSON(),
+    },
+    classifyFinishError,
+  );
   if (finish.kind === "error") return { ok: false, code: finish.code };
   if (!isFinishBody(finish.body)) return { ok: false, code: "unknown" };
   return { ok: true, userId: finish.body.userId, role: finish.body.role };
