@@ -1,35 +1,18 @@
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { useLocation } from "react-router";
+import { PasskeyDialog, type PasskeyDialogState } from "@/components/PasskeyDialog";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth";
+import { REGISTER_ERROR_MESSAGES } from "@/lib/passkeyMessages";
 import {
   clearFragment,
-  fetchSession,
   isValidCode,
   isValidName,
   MAX_NAME_BYTES,
   type RegisterErrorCode,
   readRegisterLocation,
   register,
-  type SessionResult,
 } from "@/lib/register";
-
-const ERROR_MESSAGES: Record<RegisterErrorCode, string> = {
-  invitation_rejected:
-    "That invitation code isn't valid. It may be wrong, already used, expired, or revoked.",
-  invalid_invitation: "That invitation code isn't in the right format. Check it and try again.",
-  invalid_name: "That name can't be used. Use a plain name without special characters.",
-  invalid_challenge: "The sign-up attempt expired. Please try again.",
-  invalid_credential: "Your passkey was refused. Please try again.",
-  conflict: "This invitation was just used. If that wasn't you, ask for a new one.",
-  unavailable: "The server can't take sign-ups right now. Try again in a moment.",
-  unsupported:
-    "This browser can't create passkeys. Try a current browser on a device with a screen lock.",
-  cancelled: "The passkey prompt was dismissed. Try again when you're ready.",
-  already_registered: "A passkey for this account already exists on this device.",
-  authenticator_failed: "Your device couldn't create a passkey. Please try again.",
-  network: "Can't reach the server. Check your connection and try again.",
-  unknown: "Something went wrong. Please try again.",
-};
 
 /**
  * Registration by invitation. The invitation code arrives in the URL fragment
@@ -40,19 +23,11 @@ export function Register() {
   const location = useLocation();
   // Read once: after the fragment is cleared the router location no longer has it.
   const [initial] = useState(() => readRegisterLocation(location));
-  const [session, setSession] = useState<SessionResult | null>(null);
+  const { session } = useAuth();
 
   useEffect(() => {
     if (location.hash !== "") clearFragment();
   }, [location.hash]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetchSession(undefined, controller.signal).then((result) => {
-      if (!controller.signal.aborted) setSession(result);
-    });
-    return () => controller.abort();
-  }, []);
 
   return (
     <section className="space-y-6">
@@ -65,9 +40,11 @@ export function Register() {
         </p>
       </header>
 
-      {session === null && <p className="text-muted-foreground">Checking your session…</p>}
-      {session?.state === "signed_in" && <AlreadySignedIn />}
-      {session !== null && session.state !== "signed_in" && (
+      {session.state === "loading" && (
+        <p className="text-muted-foreground">Checking your session…</p>
+      )}
+      {session.state === "signed_in" && <AlreadySignedIn />}
+      {session.state !== "loading" && session.state !== "signed_in" && (
         <RegisterForm initialCode={initial.code} />
       )}
     </section>
@@ -75,6 +52,7 @@ export function Register() {
 }
 
 function AlreadySignedIn() {
+  const { busy, logout } = useAuth();
   return (
     <div className="space-y-3">
       <h2 className="text-xl font-semibold">You're already logged in</h2>
@@ -82,13 +60,20 @@ function AlreadySignedIn() {
         You can't create another account while signed in. Log out first if you want to register a
         different one.
       </p>
-      {/* Logout isn't implemented yet, so this intentionally does nothing. */}
-      <Button type="button" variant="outline" onClick={() => {}}>
+      <Button type="button" variant="outline" disabled={busy} onClick={() => void logout()}>
         Log out
       </Button>
     </div>
   );
 }
+
+/** Failures the user fixes by editing the form, so they are shown beside it. */
+const FIELD_ERRORS = new Set<RegisterErrorCode>([
+  "invitation_rejected",
+  "invalid_invitation",
+  "invalid_name",
+  "conflict",
+]);
 
 function RegisterForm({ initialCode }: { initialCode: string }) {
   const [name, setName] = useState("");
@@ -101,8 +86,8 @@ function RegisterForm({ initialCode }: { initialCode: string }) {
 
   const canSubmit = isValidName(name) && isValidCode(code) && !busy;
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+  const submit = async (event?: FormEvent) => {
+    event?.preventDefault();
     if (!canSubmit) return;
     setBusy(true);
     setError(null);
@@ -116,6 +101,15 @@ function RegisterForm({ initialCode }: { initialCode: string }) {
       setError(result.code);
     }
   };
+
+  // Problems with what the user typed stay next to the form. Everything else is about the
+  // passkey or the server, which the user can only retry, so it gets the modal.
+  const fieldError = error !== null && FIELD_ERRORS.has(error);
+  let dialog: PasskeyDialogState | null = null;
+  if (busy) dialog = { status: "waiting" };
+  else if (error !== null && !fieldError) {
+    dialog = { status: "error", message: REGISTER_ERROR_MESSAGES[error] };
+  }
 
   if (done) {
     return (
@@ -175,14 +169,20 @@ function RegisterForm({ initialCode }: { initialCode: string }) {
           characters.
         </p>
       )}
-      {error !== null && (
+      {error !== null && fieldError && (
         <p role="alert" className="rounded-md border border-destructive/50 p-3 text-sm">
-          {ERROR_MESSAGES[error]}
+          {REGISTER_ERROR_MESSAGES[error]}
         </p>
       )}
       <Button type="submit" disabled={!canSubmit}>
-        {busy ? "Waiting for your passkey…" : "Create account"}
+        Create account
       </Button>
+      <PasskeyDialog
+        action="register"
+        state={dialog}
+        onRetry={() => void submit()}
+        onClose={() => setError(null)}
+      />
     </form>
   );
 }

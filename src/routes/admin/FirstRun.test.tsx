@@ -14,7 +14,9 @@ beforeEach(() => {
   localStorage.clear();
   calls = 0;
   responses = [];
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (url: string) => {
+    // The nav bar's session check is not what these tests are about.
+    if (url === "/api/session") return new Response("", { status: 401 });
     const next = responses[Math.min(calls++, responses.length - 1)];
     if (next === "network") throw new TypeError("offline");
     return new Response(JSON.stringify(next?.body), { status: next?.status ?? 200 });
@@ -226,8 +228,9 @@ test("stops polling when the page unmounts", async () => {
 
 test("an in-flight poll resolving after unmount is dropped", async () => {
   let release: (r: Response) => void = () => {};
-  globalThis.fetch = (() =>
+  globalThis.fetch = ((url: string) =>
     new Promise<Response>((resolve) => {
+      if (url === "/api/session") return resolve(new Response("", { status: 401 }));
       release = resolve;
     })) as typeof fetch;
   const router = createTestRouter(["/admin/first-run"]);
