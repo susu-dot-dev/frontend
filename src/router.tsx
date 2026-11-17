@@ -3,6 +3,7 @@ import { FirstRun } from "@/routes/admin/FirstRun";
 import { Home } from "@/routes/Home";
 import { Layout } from "@/routes/Layout";
 import { NotFound } from "@/routes/NotFound";
+import { Register } from "@/routes/Register";
 
 export const routes: RouteObject[] = [
   {
@@ -11,6 +12,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, Component: Home },
       { path: "admin/first-run", Component: FirstRun },
+      { path: "register", Component: Register },
       { path: "*", Component: NotFound },
     ],
   },
