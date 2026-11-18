@@ -6,6 +6,7 @@ import {
   listAgents,
   MAX_AGENTS_PER_USER,
   MAX_NAME_CHARS,
+  normalizeAgentName,
   parseAgent,
   revokeAgent,
 } from "./agents";
@@ -172,6 +173,23 @@ describe("isValidAgentName", () => {
   test("accepts a normal name and the limit, counting characters not bytes", () => {
     expect(isValidAgentName("Bot")).toBe(true);
     expect(isValidAgentName("🤖".repeat(MAX_NAME_CHARS))).toBe(true);
+  });
+
+  test("agent names may hold the zero-width joiners (emoji sequences, Persian, Indic)", () => {
+    expect(isValidAgentName("👨\u200d👩\u200d👧 helper")).toBe(true);
+    expect(isValidAgentName("می\u200cخواهم")).toBe(true);
+  });
+
+  test("refuses control and other invisible characters, and a name of only joiners", () => {
+    expect(isValidAgentName("a\u200bb")).toBe(false);
+    expect(isValidAgentName("a\u202eb")).toBe(false);
+    expect(isValidAgentName("a\u0000b")).toBe(false);
+    expect(isValidAgentName("\u200d\u200c")).toBe(false);
+  });
+
+  test("normalizes to trimmed NFC, and counts the limit after that", () => {
+    expect(normalizeAgentName("  Cafe\u0301  ")).toBe("Caf\u00e9");
+    expect(isValidAgentName(`${"a".repeat(MAX_NAME_CHARS)}  `)).toBe(true);
   });
 
   test("refuses blank and too-long names", () => {

@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { onSignedOut } from "@/lib/adminApi";
 import { type LoginErrorCode, login as runLogin, logout as runLogout } from "@/lib/login";
 import { fetchSession, type SessionResult } from "@/lib/register";
 
@@ -54,6 +55,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return () => controller.abort();
   }, []);
+
+  // A 401 from any API call means the server no longer accepts our cookie (revoked account,
+  // expired session): the user is signed out, whatever the UI last believed. A 403 is not
+  // handled here on purpose: that user is still signed in, just not allowed.
+  useEffect(() => onSignedOut(() => setSession({ state: "signed_out" })), []);
 
   const login = useCallback(async () => {
     if (inFlight.current) return false;

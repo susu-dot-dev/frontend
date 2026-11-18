@@ -1,5 +1,6 @@
 import { afterEach, expect, rs, test } from "@rstest/core";
 import { act, render } from "@testing-library/react";
+import { adminRequest } from "./adminApi";
 import { AuthProvider, type AuthState, useAuth } from "./auth";
 
 afterEach(() => {
@@ -74,4 +75,25 @@ test("login is ignored while one is in flight", async () => {
   });
   expect(second).toBe(false);
   expect(calls).toEqual(["/api/session", "/api/login/begin"]);
+});
+
+test("a 401 from any API call signs the user out, a 403 does not", async () => {
+  rs.stubGlobal("fetch", async (url: string) =>
+    url === "/api/session"
+      ? new Response(JSON.stringify({ userId: "u", role: "admin" }), { status: 200 })
+      : new Response("{}", { status: 403 }),
+  );
+  const auth = await renderAuth();
+  expect(auth.current.session.state).toBe("signed_in");
+
+  await act(async () => {
+    await adminRequest(fetch, "GET", "/api/user");
+  });
+  expect(auth.current.session.state).toBe("signed_in");
+
+  rs.stubGlobal("fetch", async () => new Response("{}", { status: 401 }));
+  await act(async () => {
+    await adminRequest(fetch, "GET", "/api/user");
+  });
+  expect(auth.current.session.state).toBe("signed_out");
 });

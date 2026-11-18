@@ -13,16 +13,19 @@ import {
 import { describeAdminError } from "@/lib/adminApi";
 import { formatTimestamp, shortId } from "@/lib/format";
 import {
+  type CreatableInvitationType,
   type CreatedInvitation,
   createInvitation,
   describeInvitationError,
   type Invitation,
   type InvitationStatus,
   inviteLink,
+  isValidLabel,
   isValidNumInvites,
   listInvitations,
   MAX_LABEL_CHARS,
   MAX_NUM_INVITES,
+  normalizeLabel,
   revokeInvitation,
   updateNumInvites,
 } from "@/lib/invitations";
@@ -236,6 +239,7 @@ function CreateDialog({
   onClose: () => void;
   onCreated: (invitation: CreatedInvitation) => void;
 }) {
+  const [type, setType] = useState<CreatableInvitationType>("member");
   const [label, setLabel] = useState("");
   const [numInvites, setNumInvites] = useState("1");
   const [expires, setExpires] = useState("");
@@ -247,13 +251,18 @@ function CreateDialog({
   const valid =
     numInvites.trim() !== "" &&
     isValidNumInvites(count) &&
-    label.length <= MAX_LABEL_CHARS &&
+    isValidLabel(label) &&
     (expires === "" || (expiresAt !== undefined && expiresAt * 1000 > Date.now()));
 
   const submit = async () => {
     setBusy(true);
     setError(null);
-    const result = await createInvitation({ numInvites: count, label: label.trim(), expiresAt });
+    const result = await createInvitation({
+      type,
+      numInvites: count,
+      label: normalizeLabel(label),
+      expiresAt,
+    });
     setBusy(false);
     if (result.ok) {
       onCreated(result.value);
@@ -281,6 +290,17 @@ function CreateDialog({
             void submit();
           }}
         >
+          <label className="block space-y-1 text-sm font-medium">
+            Account type
+            <select
+              value={type}
+              onChange={(event) => setType(event.target.value as CreatableInvitationType)}
+              className={INPUT_CLASS}
+            >
+              <option value="member">Member</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </label>
           <label className="block space-y-1 text-sm font-medium">
             Label (optional)
             <input

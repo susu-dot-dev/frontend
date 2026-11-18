@@ -10,6 +10,7 @@ import {
   generateSecret,
   isPlausibleSecret,
   loadStoredSecret,
+  MAX_SECRET_LEN,
   registerUrl,
   storeSecret,
 } from "@/lib/firstRun";
@@ -26,6 +27,7 @@ export const POLL_INTERVAL_MS = 3000;
 export function FirstRun() {
   const [status, setStatus] = useState<FirstRunStatus | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -37,6 +39,13 @@ export function FirstRun() {
       // The status can bounce during a rollout; always take the latest answer,
       // and keep the last known one across a failed poll.
       if (result.ok) setStatus(result.status);
+      // A blocked deployment cannot recover by itself: say so and stop asking.
+      if (!result.ok && result.blocked) {
+        setBlocked(true);
+        setUnavailable(false);
+        return;
+      }
+      setBlocked(false);
       setUnavailable(!result.ok);
       // Setup is over for good once an account exists.
       if (result.ok && result.status === "invitation_accepted") return;
@@ -60,17 +69,34 @@ export function FirstRun() {
         </p>
       </header>
 
+      {blocked && <BlockedStep />}
+
       {unavailable && (
         <p role="alert" className="rounded-md border border-destructive/50 p-3 text-sm">
           Can't reach the server for its setup status. Retrying automatically.
         </p>
       )}
 
-      {status === null && !unavailable && <p className="text-muted-foreground">Checking status…</p>}
-      {status === "missing_secret" && <MissingSecretStep />}
-      {status === "invitation_pending" && <PendingStep />}
-      {status === "invitation_accepted" && <AcceptedStep />}
+      {status === null && !unavailable && !blocked && (
+        <p className="text-muted-foreground">Checking status…</p>
+      )}
+      {!blocked && status === "missing_secret" && <MissingSecretStep />}
+      {!blocked && status === "invitation_pending" && <PendingStep />}
+      {!blocked && status === "invitation_accepted" && <AcceptedStep />}
     </section>
+  );
+}
+
+function BlockedStep() {
+  return (
+    <div role="alert" className="space-y-2 rounded-md border border-destructive/50 p-4">
+      <h2 className="text-xl font-semibold">Setup can't finish with this database</h2>
+      <p className="text-sm">
+        The database holds an invitation that isn't the first-run one, but no account exists, so a
+        first-run invitation can never be created and no secret will fix that. Wipe the database and
+        redeploy to start over.
+      </p>
+    </div>
   );
 }
 
@@ -134,6 +160,12 @@ function MissingSecretStep() {
           who can configure the Worker can do it. The value below was generated in your browser and
           is never sent to the server. Keep this tab's browser, or save the value somewhere safe: it
           can't be shown again once it is set.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          If you generate your own, use 32 to {MAX_SECRET_LEN} letters, digits, <code>-</code> and{" "}
+          <code>_</code> only. Output from <code>openssl rand -base64</code> has <code>+</code>,{" "}
+          <code>/</code> and <code>=</code> and is silently ignored by the server, which keeps
+          reporting this step.
         </p>
       </div>
 
@@ -236,6 +268,11 @@ function PendingStep() {
               className="block w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
             />
           </label>
+          {pasted.trim() !== "" && !isPlausibleSecret(pasted) && (
+            <p className="text-sm text-muted-foreground">
+              A secret is 32 to {MAX_SECRET_LEN} letters, digits, <code>-</code> or <code>_</code>.
+            </p>
+          )}
           <Button type="submit" disabled={!isPlausibleSecret(pasted)}>
             Continue
           </Button>

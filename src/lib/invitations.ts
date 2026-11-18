@@ -14,17 +14,19 @@ import {
   isRecord,
   malformed,
 } from "@/lib/adminApi";
+import { isShowable, normalizeText } from "@/lib/displayText";
 
 /** Matches authsu's invitations.MaxNumInvites and MaxLabelChars. */
 export const MAX_NUM_INVITES = 10_000;
 export const MAX_LABEL_CHARS = 256;
 
 /**
- * The type new invitations are created with. The server decides which types
- * are creatable (and the role each grants); at the time of writing it has none,
- * so creating is refused with `invalid_invitation_type` until it adds one.
+ * What an invitation grants: the account that registers with it gets the role of the
+ * same name. The server fixes this set in code; any other value is 400
+ * `invalid_invitation_type`. (The first-run type is created by the server alone.)
  */
-export const CREATE_INVITATION_TYPE = "member";
+export const INVITATION_TYPES = ["member", "admin"] as const;
+export type CreatableInvitationType = (typeof INVITATION_TYPES)[number];
 
 export type InvitationStatus = "active" | "revoked" | "expired" | "exhausted";
 
@@ -102,6 +104,8 @@ export async function listInvitations(
 }
 
 export type CreateInput = {
+  /** What the invitee's account will be. */
+  type: CreatableInvitationType;
   numInvites: number;
   label: string;
   /** Unix seconds, or undefined for an invitation that doesn't expire. */
@@ -114,7 +118,7 @@ export async function createInvitation(
   fetchFn: typeof fetch = (...args) => fetch(...args),
 ): Promise<AdminResult<CreatedInvitation>> {
   const result = await adminRequest(fetchFn, "POST", "/api/invitation", {
-    type: CREATE_INVITATION_TYPE,
+    type: input.type,
     numInvites: input.numInvites,
     label: input.label,
     expiresAt: input.expiresAt,
@@ -153,6 +157,18 @@ export async function revokeInvitation(
 export const inviteLink = (code: string, origin: string = window.location.origin) =>
   `${origin}/register#${code}`;
 
+/** The label the server will see: NFC-normalized and trimmed. */
+export const normalizeLabel = normalizeText;
+
+/**
+ * A label is optional. The server refuses a whitespace-only label, so the form trims first and
+ * sends "" for one, which means "no label".
+ */
+export const isValidLabel = (label: string) => {
+  const normalized = normalizeText(label);
+  return normalized === "" || (isShowable(normalized) && [...normalized].length <= MAX_LABEL_CHARS);
+};
+
 /** Whether a whole-number invitation count is within the server's limits. */
 export const isValidNumInvites = (n: number) =>
   Number.isInteger(n) && n >= 1 && n <= MAX_NUM_INVITES;
@@ -161,12 +177,12 @@ export const isValidNumInvites = (n: number) =>
 export function describeInvitationError(error: AdminError): string {
   switch (error.code) {
     case "invalid_invitation_type":
-      return "The server isn't accepting new invitations yet: it has no invitation type enabled for creation.";
+      return "The server doesn't accept that kind of invitation.";
     case "invalid_num_invites":
     case "missing_num_invites":
       return `The number of invites must be a whole number from 1 to ${MAX_NUM_INVITES}.`;
     case "invalid_label":
-      return `The label can be at most ${MAX_LABEL_CHARS} characters.`;
+      return `The label can be at most ${MAX_LABEL_CHARS} characters, without control or invisible characters.`;
     case "invalid_expires_at":
       return "The expiry must be in the future.";
     case "invitation_revoked":

@@ -14,7 +14,11 @@ export const MAX_CODE_BYTES = 256;
 
 const encoder = new TextEncoder();
 
-/** Control (Cc) and format (Cf) characters, which the server rejects in names. */
+/**
+ * Control (Cc) and format (Cf) characters, which the server rejects in names. A name is what
+ * an admin recognises a person by, so unlike an agent name or a label it admits no format
+ * character at all, not even the zero-width joiners.
+ */
 const DISALLOWED_NAME_CHARS = /[\p{Cc}\p{Cf}]/u;
 
 /** The name the server will see: NFC-normalized and trimmed. */
@@ -30,9 +34,12 @@ export function isValidName(name: string): boolean {
 
 export const normalizeCode = (code: string) => code.trim();
 
+/** The alphabet of an invitation code; anything else is 400 invalid_invitation. */
+const CODE_ALPHABET = /^[A-Za-z0-9_-]+$/;
+
 export const isValidCode = (code: string) => {
   const normalized = normalizeCode(code);
-  return normalized !== "" && encoder.encode(normalized).length <= MAX_CODE_BYTES;
+  return normalized.length <= MAX_CODE_BYTES && CODE_ALPHABET.test(normalized);
 };
 
 /** What the page learned from its URL. */
@@ -72,7 +79,7 @@ export function clearFragment(
 export type RegisterErrorCode =
   /** The code is unknown, revoked, expired, or used up (403). Deliberately not more specific. */
   | "invitation_rejected"
-  /** The server found the code malformed (400). */
+  /** The server found the code malformed (400): not 1 to 256 characters of A-Z, a-z, 0-9, "_" and "-". */
   | "invalid_invitation"
   | "invalid_name"
   /** The challenge expired or was minted for other input: starting again fixes it. */

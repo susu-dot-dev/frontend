@@ -10,8 +10,14 @@ export const FIRST_RUN_SECRET_NAME = "FIRST_RUN_SECRET";
 export const AUTH_HMAC_SECRET_NAME = "AUTH_HMAC_SECRET";
 export const FIRST_RUN_STORAGE_KEY = "susu-first-run-secret";
 
-/** Matches authsu's firstrun.MinSecretLen. */
+/** Matches authsu's config.MinFirstRunSecretLen. */
 export const MIN_SECRET_LEN = 32;
+
+/** The longest invitation code authsu accepts (input.ParseInvitationCode). */
+export const MAX_SECRET_LEN = 256;
+
+/** The alphabet authsu accepts in an invitation code, and so in FIRST_RUN_SECRET. */
+const BASE64URL = /^[A-Za-z0-9_-]+$/;
 
 export type FirstRunStatus = "missing_secret" | "invitation_pending" | "invitation_accepted";
 
@@ -39,10 +45,16 @@ export function generateSecret(
 
 export type StatusResult =
   | { ok: true; status: FirstRunStatus }
+  /**
+   * 409 first_run_blocked: some other invitation exists but no account does, so no
+   * first-run invitation can ever be created. No secret will help; the owner must
+   * wipe the database and redeploy. Retrying is pointless.
+   */
+  | { ok: false; blocked: true }
   /** Transient failure (503, network, bad body): the caller should retry. */
-  | { ok: false };
+  | { ok: false; blocked?: false };
 
-/** GET /api/first-run. Never throws; any failure is reported as retryable. */
+/** GET /api/first-run. Never throws; any failure but `first_run_blocked` is reported as retryable. */
 export async function fetchFirstRunStatus(
   fetchFn: typeof fetch = fetch,
   signal?: AbortSignal,
@@ -53,6 +65,11 @@ export async function fetchFirstRunStatus(
       cache: "no-store",
       signal,
     });
+    if (response.status === 409) {
+      const body: unknown = await response.json().catch(() => undefined);
+      const code = (body as { error?: { code?: unknown } } | null | undefined)?.error?.code;
+      return code === "first_run_blocked" ? { ok: false, blocked: true } : { ok: false };
+    }
     if (!response.ok) return { ok: false };
     const body: unknown = await response.json();
     const status = (body as { status?: unknown } | null)?.status;
@@ -92,5 +109,15 @@ export function clearStoredSecret(storage: Pick<SecretStorage, "removeItem"> = l
   }
 }
 
-/** Whether a pasted value could be a deployed secret (the server enforces the same floor). */
-export const isPlausibleSecret = (value: string) => value.trim().length >= MIN_SECRET_LEN;
+/**
+ * Whether a pasted value could be a deployed secret. The server enforces the same rules and
+ * otherwise reports "missing_secret" forever without saying why, so a secret with a character
+ * outside base64url (for example `openssl rand -base64` output, which has `+`, `/` and `=`)
+ * is refused here instead.
+ */
+export const isPlausibleSecret = (value: string) => {
+  const trimmed = value.trim();
+  return (
+    trimmed.length >= MIN_SECRET_LEN && trimmed.length <= MAX_SECRET_LEN && BASE64URL.test(trimmed)
+  );
+};
