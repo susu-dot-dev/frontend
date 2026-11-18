@@ -16,11 +16,13 @@ export function Layout() {
   );
 }
 
-/** Admin screens hold tables and a side bar, so they get more room than the prose pages. */
+/** Admin and agent screens hold tables, so they get more room than the prose pages. */
 function Main() {
   const { pathname } = useLocation();
   // First-run is a prose page that shares the /admin prefix, so it keeps the narrow column.
-  const wide = pathname.startsWith("/admin") && pathname !== "/admin/first-run";
+  const wide =
+    (pathname.startsWith("/admin") && pathname !== "/admin/first-run") ||
+    pathname.startsWith("/agents");
   return (
     <main className={cn("mx-auto px-6 py-12", wide ? "max-w-6xl" : "max-w-3xl")}>
       <Outlet />
@@ -52,6 +54,14 @@ function NavBar() {
           susu
         </Link>
         <div className="flex items-center gap-3">
+          {session.state === "signed_in" && (
+            <Link
+              to="/agents"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground"
+            >
+              Agents
+            </Link>
+          )}
           {session.state === "signed_in" && session.role === "admin" && (
             <Link
               to="/admin"

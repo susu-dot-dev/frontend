@@ -1,4 +1,5 @@
 import { createBrowserRouter, createMemoryRouter, Navigate, type RouteObject } from "react-router";
+import { Agents } from "@/routes/Agents";
 import { AdminLayout } from "@/routes/admin/AdminLayout";
 import { FirstRun } from "@/routes/admin/FirstRun";
 import { Invitations } from "@/routes/admin/Invitations";
@@ -24,6 +25,7 @@ export const routes: RouteObject[] = [
           { path: "invitations", Component: Invitations },
         ],
       },
+      { path: "agents", Component: Agents },
       { path: "register", Component: Register },
       { path: "*", Component: NotFound },
     ],

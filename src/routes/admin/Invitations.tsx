@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { CopyField } from "@/components/CopyField";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -383,37 +384,6 @@ function CodeDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function CopyField({
-  label,
-  value,
-  copied,
-  onCopy,
-}: {
-  label: string;
-  value: string;
-  copied: boolean;
-  onCopy: () => void;
-}) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">{label}</span>
-        <Button type="button" variant="outline" size="sm" onClick={onCopy}>
-          {copied ? "Copied" : "Copy"}
-        </Button>
-      </div>
-      <textarea
-        readOnly
-        aria-label={label}
-        value={value}
-        rows={2}
-        onFocus={(event) => event.currentTarget.select()}
-        className="block w-full resize-none rounded-md border bg-muted p-3 font-mono text-sm"
-      />
-    </div>
   );
 }
 
