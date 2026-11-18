@@ -6,11 +6,27 @@
  * Never throws: failures are values the UI can branch on.
  */
 
+/**
+ * authsu answers 401 only when the credential is not valid, meaning the user is
+ * signed out (a revoked account, an expired session, a duplicated cookie). A
+ * signed-in caller who merely may not do something gets 403 and keeps the
+ * session. So a 401 from any call is the signal to drop the signed-in UI,
+ * whichever page made the call.
+ */
+type SignedOutListener = () => void;
+const signedOutListeners = new Set<SignedOutListener>();
+
+/** Calls `listener` whenever an API call is answered 401. Returns the unsubscribe function. */
+export function onSignedOut(listener: SignedOutListener): () => void {
+  signedOutListeners.add(listener);
+  return () => signedOutListeners.delete(listener);
+}
+
 /** Why an admin call failed, in terms the UI branches on. */
 export type AdminErrorKind =
   /** 401: no session, or it expired. */
   | "unauthenticated"
-  /** 403: signed in, but not an administrator (the role is re-read on every request). */
+  /** 403: signed in and the session is fine, but this account may not do this (e.g. not an administrator). */
   | "forbidden"
   /** 404: the user or invitation doesn't exist. */
   | "not_found"
@@ -75,6 +91,8 @@ export async function adminRequest(
   }
 
   if (response.ok) return { ok: true, value: body };
+
+  if (response.status === 401) for (const listener of signedOutListeners) listener();
 
   const error = (body as { error?: { code?: unknown; data?: unknown } } | null | undefined)?.error;
   return {

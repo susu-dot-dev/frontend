@@ -191,6 +191,63 @@ test("pending without the secret asks the owner to paste it", async () => {
   expect(screen.queryByText(pasted)).toBeNull();
 });
 
+test("pending explains a pasted secret the server would never accept", async () => {
+  responses = [status("invitation_pending")];
+  await renderPage();
+  const input = screen.getByLabelText("FIRST_RUN_SECRET value");
+  expect(screen.queryByText(/letters, digits/)).toBeNull();
+  await userEvent.type(input, `${"a".repeat(43)}=`);
+  expect(screen.getByText(/32 to 256 letters, digits/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+});
+
+test("missing secret warns that a hand-made secret must be base64url", async () => {
+  responses = [status("missing_secret")];
+  await renderPage();
+  expect(screen.getByText(/openssl rand -base64/)).toBeVisible();
+});
+
+test("blocked: a 409 first_run_blocked says to wipe and redeploy, and stops polling", async () => {
+  rs.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  responses = [
+    {
+      status: 409,
+      body: { error: { code: "first_run_blocked", message: "wipe it and redeploy" } },
+    },
+  ];
+  await renderPage();
+  expect(
+    screen.getByRole("heading", { name: "Setup can't finish with this database" }),
+  ).toBeVisible();
+  expect(screen.getByText(/Wipe the database and redeploy/)).toBeVisible();
+  // Not an outage, and no setup step is offered.
+  expect(screen.queryByText(/Retrying automatically/)).toBeNull();
+  expect(screen.queryByText(/Checking status/)).toBeNull();
+  expect(screen.queryByText("Step 1: set the deployment secrets")).toBeNull();
+
+  await act(async () => {
+    await rs.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 5);
+  });
+  expect(calls).toBe(1);
+});
+
+test("a deployment that was blocked and then recovers (e.g. it was wiped) leaves the blocked view", async () => {
+  rs.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  responses = [status("missing_secret")];
+  await renderPage();
+  expect(screen.getByText("Step 1: set the deployment secrets")).toBeVisible();
+  responses = [{ status: 409, body: { error: { code: "first_run_blocked" } } }];
+  calls = 0;
+  await act(async () => {
+    await rs.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+  });
+  expect(
+    screen.getByRole("heading", { name: "Setup can't finish with this database" }),
+  ).toBeVisible();
+  // The step that was on screen is hidden while blocked, not left to mislead.
+  expect(screen.queryByText("Step 1: set the deployment secrets")).toBeNull();
+});
+
 test("pending page signposts wipe-and-redeploy recovery", async () => {
   responses = [status("invitation_pending")];
   await renderPage();

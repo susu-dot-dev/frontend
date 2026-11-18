@@ -19,6 +19,7 @@ import {
   isValidAgentName,
   listAgents,
   MAX_NAME_CHARS,
+  normalizeAgentName,
   revokeAgent,
 } from "@/lib/agents";
 import { useAuth } from "@/lib/auth";
@@ -259,7 +260,7 @@ function CreateDialog({
   const submit = async () => {
     setBusy(true);
     setError(null);
-    const result = await createAgent(name.trim());
+    const result = await createAgent(normalizeAgentName(name));
     setBusy(false);
     if (result.ok) onCreated(result.value);
     else setError(describeAgentError(result.error));

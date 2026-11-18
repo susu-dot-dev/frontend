@@ -30,6 +30,22 @@ describe("generateSecret", () => {
   });
 });
 
+describe("fetchFirstRunStatus: 409 first_run_blocked", () => {
+  const blocked = { error: { code: "first_run_blocked", message: "wipe it and redeploy" } };
+
+  test("is reported as blocked, not as a retryable failure", async () => {
+    expect(await fetchFirstRunStatus(json(blocked, 409))).toEqual({ ok: false, blocked: true });
+  });
+
+  test("a 409 with any other or unreadable body is just a retryable failure", async () => {
+    expect(await fetchFirstRunStatus(json({ error: { code: "other" } }, 409))).toEqual({
+      ok: false,
+    });
+    const garbled = (async () => new Response("<html>", { status: 409 })) as typeof fetch;
+    expect(await fetchFirstRunStatus(garbled)).toEqual({ ok: false });
+  });
+});
+
 describe("isFirstRunStatus", () => {
   test.each(["missing_secret", "invitation_pending", "invitation_accepted"])("accepts %s", (v) => {
     expect(isFirstRunStatus(v)).toBe(true);
@@ -116,6 +132,19 @@ describe("secret storage", () => {
     expect(loadStoredSecret({ getItem: throwing })).toBeNull();
     expect(() => storeSecret("x", { setItem: throwing })).not.toThrow();
     expect(() => clearStoredSecret({ removeItem: throwing })).not.toThrow();
+  });
+});
+
+describe("isPlausibleSecret: what the server will accept as FIRST_RUN_SECRET", () => {
+  test("only base64url characters, 32 to 256 of them", () => {
+    expect(isPlausibleSecret(generateSecret())).toBe(true);
+    expect(isPlausibleSecret("a".repeat(256))).toBe(true);
+    expect(isPlausibleSecret("a".repeat(257))).toBe(false);
+  });
+
+  test.each(["+", "/", "=", ".", " ", "é"])("refuses a secret containing %j", (bad) => {
+    // `openssl rand -base64 32` is 44 characters ending in "=": long enough, wrong alphabet.
+    expect(isPlausibleSecret(`${"a".repeat(31)}${bad}${"a".repeat(5)}`)).toBe(false);
   });
 });
 

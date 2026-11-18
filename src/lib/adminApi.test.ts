@@ -5,6 +5,7 @@ import {
   describeAdminError,
   isRecord,
   malformed,
+  onSignedOut,
 } from "./adminApi";
 
 const reply = (status: number, body?: unknown) =>
@@ -129,4 +130,19 @@ test.each([
   ["conflict", "Something went wrong"],
 ] as const)("describeAdminError(%s)", (kind, text) => {
   expect(describeAdminError({ kind, code: undefined, data: undefined })).toContain(text);
+});
+
+describe("onSignedOut", () => {
+  test("a 401 tells every listener the user is signed out; a 403 does not", async () => {
+    let signedOut = 0;
+    const stop = onSignedOut(() => signedOut++);
+    await adminRequest(reply(403, { error: { code: "forbidden" } }), "GET", "/api/x");
+    await adminRequest(reply(500), "GET", "/api/x");
+    expect(signedOut).toBe(0);
+    await adminRequest(reply(401, { error: { code: "unauthenticated" } }), "GET", "/api/x");
+    expect(signedOut).toBe(1);
+    stop();
+    await adminRequest(reply(401), "GET", "/api/x");
+    expect(signedOut).toBe(1);
+  });
 });

@@ -245,6 +245,21 @@ test("explains invalid names", async () => {
   expect(screen.getByRole("button", { name: "Create account" })).toBeDisabled();
 });
 
+test("explains an invitation code the server would refuse as malformed", async () => {
+  await renderPage();
+  const code = screen.getByLabelText("Invitation code");
+  await userEvent.type(screen.getByLabelText("Full name"), "Ada");
+  expect(screen.queryByText(/An invitation code is up to/)).not.toBeInTheDocument();
+  // A pasted code with stray punctuation (here a base64 "=" and ".") is a 400, so stop it here.
+  await userEvent.type(code, "abc.def==");
+  expect(screen.getByText(/An invitation code is up to 256 letters, digits/)).toBeVisible();
+  expect(screen.getByRole("button", { name: "Create account" })).toBeDisabled();
+  await userEvent.clear(code);
+  await userEvent.type(code, "abc_def-123");
+  expect(screen.queryByText(/An invitation code is up to/)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Create account" })).toBeEnabled();
+});
+
 test("already logged in: hides the form, and logging out reveals it", async () => {
   session = { body: { userId: "u-1", role: "member", expiresAt: 1 } };
   await renderPage("/register#code");

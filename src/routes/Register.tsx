@@ -8,6 +8,7 @@ import {
   clearFragment,
   isValidCode,
   isValidName,
+  MAX_CODE_BYTES,
   MAX_NAME_BYTES,
   type RegisterErrorCode,
   readRegisterLocation,
@@ -163,6 +164,12 @@ function RegisterForm({ initialCode }: { initialCode: string }) {
           </Button>
         </div>
       </div>
+      {code.trim() !== "" && !isValidCode(code) && (
+        <p className="text-sm text-muted-foreground">
+          An invitation code is up to {MAX_CODE_BYTES} letters, digits, <code>-</code> and{" "}
+          <code>_</code>. Check that nothing else was copied with it.
+        </p>
+      )}
       {name !== "" && !isValidName(name) && (
         <p className="text-sm text-muted-foreground">
           Names can be up to {MAX_NAME_BYTES} bytes and can't contain control or invisible

@@ -165,6 +165,31 @@ describe("access", () => {
     expect(backend.calls.map((c) => c.key)).not.toContain("GET /api/invitation");
   });
 
+  test("a 401 from an admin call signs the user out: the page falls back to the login prompt", async () => {
+    await open("/admin/users");
+    await screen.findByText("Mia");
+    // Revoked in another tab, say: the next call is refused as signed out.
+    backend.force["DELETE /api/user/bbbbbbbb-0000-4000-8000-000000000002"] = () =>
+      json(401, { error: { code: "unauthenticated" } });
+    await userEvent.click(screen.getByRole("button", { name: "Revoke Mia" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Revoke user" }));
+    expect(await screen.findByRole("heading", { name: "Administration" })).toBeVisible();
+    expect(screen.getAllByRole("button", { name: "Login" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+  });
+
+  test("a 403 keeps the session: the user is still signed in", async () => {
+    await open("/admin/users");
+    await screen.findByText("Mia");
+    backend.force["DELETE /api/user/bbbbbbbb-0000-4000-8000-000000000002"] = () =>
+      json(403, { error: { code: "forbidden" } });
+    await userEvent.click(screen.getByRole("button", { name: "Revoke Mia" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Revoke user" }));
+    expect(await screen.findByText("Only administrators can do this.")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("link", { name: "Admin" })).toBeVisible();
+  });
+
   test("an administrator sees the Admin link in the nav bar", async () => {
     await open("/");
     expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/admin");
@@ -520,7 +545,7 @@ describe("invitations", () => {
       await userEvent.type(within(dialog).getByLabelText(/Label/), "keep me");
       await userEvent.click(within(dialog).getByRole("button", { name: "Create invitation" }));
       expect(await within(dialog).findByRole("alert")).toHaveTextContent(
-        "isn't accepting new invitations",
+        "doesn't accept that kind of invitation",
       );
       expect(within(dialog).getByLabelText(/Label/)).toHaveValue("keep me");
     });
@@ -557,6 +582,32 @@ describe("invitations", () => {
       await waitFor(() => {
         expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
       });
+    });
+
+    test("sends the chosen account type, member by default", async () => {
+      const dialog = await openCreate();
+      const type = within(dialog).getByLabelText("Account type");
+      expect(type).toHaveValue("member");
+      await userEvent.selectOptions(type, "admin");
+      await userEvent.click(within(dialog).getByRole("button", { name: "Create invitation" }));
+      await screen.findByRole("dialog", { name: "Invitation created" });
+      const post = backend.calls.find((c) => c.key === "POST /api/invitation");
+      expect(post?.body).toMatchObject({ type: "admin" });
+    });
+
+    test("a whitespace-only label is sent as no label; invisible characters block submit", async () => {
+      const dialog = await openCreate();
+      const label = within(dialog).getByLabelText(/Label/);
+      const submit = within(dialog).getByRole("button", { name: "Create invitation" });
+      await userEvent.type(label, "a\u200eb");
+      expect(submit).toBeDisabled();
+      await userEvent.clear(label);
+      await userEvent.type(label, "   ");
+      expect(submit).toBeEnabled();
+      await userEvent.click(submit);
+      await screen.findByRole("dialog", { name: "Invitation created" });
+      const post = backend.calls.find((c) => c.key === "POST /api/invitation");
+      expect(post?.body).toMatchObject({ label: "" });
     });
 
     test("pressing Enter submits a valid form once", async () => {

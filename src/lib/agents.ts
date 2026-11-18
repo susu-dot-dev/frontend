@@ -17,6 +17,7 @@ import {
   isRecord,
   malformed,
 } from "@/lib/adminApi";
+import { isShowable, normalizeText } from "@/lib/displayText";
 
 /** Matches authsu's agents.MaxNameChars and MaxAgentsPerUser. */
 export const MAX_NAME_CHARS = 256;
@@ -130,16 +131,19 @@ export async function revokeAgent(
   return agent === null ? malformed() : { ok: true, value: agent };
 }
 
-/** Whether a name is acceptable before the round trip: not blank, within the limit. */
+/** The name the server will see: NFC-normalized and trimmed. */
+export const normalizeAgentName = normalizeText;
+
+/** Whether a name is acceptable before the round trip: showable text within the limit. */
 export const isValidAgentName = (name: string) =>
-  name.trim() !== "" && [...name].length <= MAX_NAME_CHARS;
+  isShowable(name) && [...normalizeText(name)].length <= MAX_NAME_CHARS;
 
 /** The wording for a failed agent call. */
 export function describeAgentError(error: AdminError): string {
   switch (error.code) {
     case "invalid_agent_name":
     case "missing_agent_name":
-      return `The name must be 1 to ${MAX_NAME_CHARS} printable characters.`;
+      return `The name must be 1 to ${MAX_NAME_CHARS} printable characters, without control or invisible characters.`;
     case "agent_limit_reached":
       return `An account can have at most ${MAX_AGENTS_PER_USER} active agents. Delete one to make room.`;
     case "agent_not_found":

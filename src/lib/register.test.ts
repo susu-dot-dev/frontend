@@ -40,12 +40,22 @@ describe("name and code validation", () => {
     expect(isValidName("bidi\u202eoverride")).toBe(false);
   });
 
-  test("codes must be non-empty and at most 256 bytes", () => {
+  test("names never admit the zero-width joiners: a name identifies a person", () => {
+    expect(isValidName("می\u200cخواهم")).toBe(false);
+    expect(isValidName("a\u200db")).toBe(false);
+  });
+
+  test("codes are 1 to 256 characters of the base64url alphabet", () => {
     expect(isValidCode("")).toBe(false);
     expect(isValidCode("  ")).toBe(false);
     expect(isValidCode("c".repeat(43))).toBe(true);
+    expect(isValidCode("aZ09_-")).toBe(true);
     expect(isValidCode("c".repeat(256))).toBe(true);
     expect(isValidCode("c".repeat(257))).toBe(false);
+    // Anything else is 400 invalid_invitation from the server.
+    for (const bad of ["abc.def", "ab+cd", "ab/cd", "abcd==", "ab cd", "é"]) {
+      expect(isValidCode(bad)).toBe(false);
+    }
   });
 });
 

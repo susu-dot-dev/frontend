@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, rs, test } from "@rstest/core";
 import {
-  CREATE_INVITATION_TYPE,
   createInvitation,
   describeInvitationError,
   inviteLink,
+  isValidLabel,
   isValidNumInvites,
   listInvitations,
   MAX_LABEL_CHARS,
   MAX_NUM_INVITES,
+  normalizeLabel,
   parseInvitation,
   revokeInvitation,
   updateNumInvites,
@@ -109,18 +110,40 @@ describe("listInvitations", () => {
   });
 });
 
+describe("isValidLabel", () => {
+  test("empty and whitespace-only labels are fine: they are sent as no label", () => {
+    expect(isValidLabel("")).toBe(true);
+    expect(isValidLabel("   ")).toBe(true);
+    expect(normalizeLabel("   ")).toBe("");
+  });
+
+  test("allows Unicode display text, including the zero-width joiners", () => {
+    expect(isValidLabel("Zoë 李")).toBe(true);
+    expect(isValidLabel("می\u200cخواهم")).toBe(true);
+    expect(isValidLabel("👨\u200d👩\u200d👧")).toBe(true);
+  });
+
+  test("refuses other invisible characters and too-long labels", () => {
+    expect(isValidLabel("a\u200bb")).toBe(false);
+    expect(isValidLabel("a\u202eb")).toBe(false);
+    expect(isValidLabel("a\u0000b")).toBe(false);
+    expect(isValidLabel("a".repeat(MAX_LABEL_CHARS))).toBe(true);
+    expect(isValidLabel("a".repeat(MAX_LABEL_CHARS + 1))).toBe(false);
+  });
+});
+
 describe("createInvitation", () => {
   test("POSTs the input and returns the invitation with its one-time code", async () => {
     const { fetchFn, seen } = recorder(201, { ...wire, code: "SECRET" });
     const result = await createInvitation(
-      { numInvites: 5, label: "Team", expiresAt: 999 },
+      { type: "admin", numInvites: 5, label: "Team", expiresAt: 999 },
       fetchFn,
     );
     expect(result).toEqual({ ok: true, value: { ...wire, code: "SECRET" } });
     expect(seen[0]?.url).toBe("/api/invitation");
     expect(seen[0]?.init.method).toBe("POST");
     expect(JSON.parse(String(seen[0]?.init.body))).toEqual({
-      type: CREATE_INVITATION_TYPE,
+      type: "admin",
       numInvites: 5,
       label: "Team",
       expiresAt: 999,
@@ -129,14 +152,14 @@ describe("createInvitation", () => {
 
   test("omits expiresAt when there is none", async () => {
     const { fetchFn, seen } = recorder(201, { ...wire, code: "C" });
-    await createInvitation({ numInvites: 1, label: "" }, fetchFn);
+    await createInvitation({ type: "member", numInvites: 1, label: "" }, fetchFn);
     expect(JSON.parse(String(seen[0]?.init.body))).not.toHaveProperty("expiresAt");
   });
 
   test("failures pass through with the server's code", async () => {
     expect(
       await createInvitation(
-        { numInvites: 1, label: "" },
+        { type: "member", numInvites: 1, label: "" },
         reply(400, { error: { code: "invalid_invitation_type" } }),
       ),
     ).toMatchObject({ ok: false, error: { kind: "invalid", code: "invalid_invitation_type" } });
@@ -144,7 +167,9 @@ describe("createInvitation", () => {
 
   test("an answer without a code or a valid invitation is an unknown failure", async () => {
     for (const body of [{ ...wire }, { ...wire, code: "" }, { ...wire, code: 3 }, { code: "x" }]) {
-      expect(await createInvitation({ numInvites: 1, label: "" }, reply(201, body))).toMatchObject({
+      expect(
+        await createInvitation({ type: "member", numInvites: 1, label: "" }, reply(201, body)),
+      ).toMatchObject({
         ok: false,
         error: { kind: "unknown" },
       });
@@ -153,7 +178,9 @@ describe("createInvitation", () => {
 
   test("uses the global fetch by default", async () => {
     rs.stubGlobal("fetch", reply(201, { ...wire, code: "C" }));
-    expect(await createInvitation({ numInvites: 1, label: "" })).toMatchObject({ ok: true });
+    expect(await createInvitation({ type: "member", numInvites: 1, label: "" })).toMatchObject({
+      ok: true,
+    });
   });
 });
 
@@ -234,7 +261,7 @@ describe("describeInvitationError", () => {
   });
 
   test.each([
-    ["invalid_invitation_type", "isn't accepting new invitations"],
+    ["invalid_invitation_type", "doesn't accept that kind"],
     ["invalid_num_invites", `from 1 to ${MAX_NUM_INVITES}`],
     ["missing_num_invites", `from 1 to ${MAX_NUM_INVITES}`],
     ["invalid_label", `${MAX_LABEL_CHARS} characters`],
