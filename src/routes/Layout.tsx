@@ -3,17 +3,28 @@ import { PasskeyDialog, type PasskeyDialogState } from "@/components/PasskeyDial
 import { Button } from "@/components/ui/button";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { LOGIN_ERROR_MESSAGES } from "@/lib/passkeyMessages";
+import { cn } from "@/lib/utils";
 
 export function Layout() {
   return (
     <AuthProvider>
       <div className="min-h-screen">
         <NavBar />
-        <main className="mx-auto max-w-3xl px-6 py-12">
-          <Outlet />
-        </main>
+        <Main />
       </div>
     </AuthProvider>
+  );
+}
+
+/** Admin screens hold tables and a side bar, so they get more room than the prose pages. */
+function Main() {
+  const { pathname } = useLocation();
+  // First-run is a prose page that shares the /admin prefix, so it keeps the narrow column.
+  const wide = pathname.startsWith("/admin") && pathname !== "/admin/first-run";
+  return (
+    <main className={cn("mx-auto px-6 py-12", wide ? "max-w-6xl" : "max-w-3xl")}>
+      <Outlet />
+    </main>
   );
 }
 
@@ -40,22 +51,32 @@ function NavBar() {
         <Link to="/" className="font-medium tracking-tight">
           susu
         </Link>
-        {showAuth && session.state === "signed_in" && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={() => void logout()}
-          >
-            Log out
-          </Button>
-        )}
-        {showAuth && session.state !== "signed_in" && session.state !== "loading" && (
-          <Button type="button" size="sm" disabled={busy} onClick={() => void login()}>
-            Login
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {session.state === "signed_in" && session.role === "admin" && (
+            <Link
+              to="/admin"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground"
+            >
+              Admin
+            </Link>
+          )}
+          {showAuth && session.state === "signed_in" && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => void logout()}
+            >
+              Log out
+            </Button>
+          )}
+          {showAuth && session.state !== "signed_in" && session.state !== "loading" && (
+            <Button type="button" size="sm" disabled={busy} onClick={() => void login()}>
+              Login
+            </Button>
+          )}
+        </div>
       </div>
       <PasskeyDialog
         action={action}
