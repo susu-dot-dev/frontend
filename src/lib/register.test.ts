@@ -376,8 +376,25 @@ describe("fetchSession", () => {
       init = i;
       return new Response(JSON.stringify({ userId: "u", role: "member", expiresAt: 1 }));
     }) as typeof fetch;
-    expect(await fetchSession(fetchFn)).toEqual({ state: "signed_in" });
+    expect(await fetchSession(fetchFn)).toEqual({
+      state: "signed_in",
+      userId: "u",
+      role: "member",
+    });
     expect(init?.credentials).toBe("include");
+  });
+
+  test("the role is carried through, and defaults to member when absent", async () => {
+    expect(await fetchSession(reply(200, { userId: "a", role: "admin" }))).toEqual({
+      state: "signed_in",
+      userId: "a",
+      role: "admin",
+    });
+    expect(await fetchSession(reply(200, { userId: "a" }))).toEqual({
+      state: "signed_in",
+      userId: "a",
+      role: "member",
+    });
   });
 
   test("401 is signed out", async () => {

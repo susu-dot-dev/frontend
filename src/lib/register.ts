@@ -288,8 +288,8 @@ export async function register(
 }
 
 export type SessionResult =
-  /** A valid session cookie exists. */
-  | { state: "signed_in" }
+  /** A valid session cookie exists. `role` is advisory: the server re-checks it on every call. */
+  | { state: "signed_in"; userId: string; role: string }
   /** The server answered 401: nobody is signed in. */
   | { state: "signed_out" }
   /** Network failure or unexpected answer: we can't tell. */
@@ -312,8 +312,11 @@ export async function fetchSession(
     });
     if (response.status === 401) return { state: "signed_out" };
     if (!response.ok) return { state: "unknown" };
-    const body = (await response.json()) as { userId?: unknown } | null;
-    return typeof body?.userId === "string" ? { state: "signed_in" } : { state: "unknown" };
+    const body = (await response.json()) as { userId?: unknown; role?: unknown } | null;
+    if (typeof body?.userId !== "string") return { state: "unknown" };
+    // A missing role is treated as the least privileged one.
+    const role = typeof body.role === "string" ? body.role : "member";
+    return { state: "signed_in", userId: body.userId, role };
   } catch {
     return { state: "unknown" };
   }

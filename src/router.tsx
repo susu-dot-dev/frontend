@@ -1,5 +1,8 @@
-import { createBrowserRouter, createMemoryRouter, type RouteObject } from "react-router";
+import { createBrowserRouter, createMemoryRouter, Navigate, type RouteObject } from "react-router";
+import { AdminLayout } from "@/routes/admin/AdminLayout";
 import { FirstRun } from "@/routes/admin/FirstRun";
+import { Invitations } from "@/routes/admin/Invitations";
+import { Users } from "@/routes/admin/Users";
 import { Home } from "@/routes/Home";
 import { Layout } from "@/routes/Layout";
 import { NotFound } from "@/routes/NotFound";
@@ -12,6 +15,15 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, Component: Home },
       { path: "admin/first-run", Component: FirstRun },
+      {
+        path: "admin",
+        Component: AdminLayout,
+        children: [
+          { index: true, element: <Navigate to="/admin/users" replace /> },
+          { path: "users", Component: Users },
+          { path: "invitations", Component: Invitations },
+        ],
+      },
       { path: "register", Component: Register },
       { path: "*", Component: NotFound },
     ],
